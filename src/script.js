@@ -130,7 +130,7 @@ let defaultMaterials = []
 const xRayMaterial = new THREE.ShaderMaterial({
   wireframe: true,
   uniforms: {
-    uPower: { value: 1.5 },
+    uPower: { value: 3.0 },
     uOpacity: { value: 1.0 },
     uGlowColor: { value: new THREE.Color(0x84ccff) },
   },
@@ -151,7 +151,7 @@ const xRayMaterial = new THREE.ShaderMaterial({
       ${THREE.ShaderChunk.skinning_vertex}
   
       gl_Position = modelViewProjectionMatrix * vec4(transformed, 1.0);
-      vIntensity = pow(1.0 - abs(dot(vNormal, vec3(1, 1, 1.5))), uPower);
+      vIntensity = pow(1.0 - abs(dot(vNormal, vec3(0, 0, 1))), uPower);
     }
   `,
   fragmentShader: `

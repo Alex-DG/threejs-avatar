@@ -1,6 +1,7 @@
 import './style.css'
 import * as THREE from 'three'
 
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 
 import { Pane } from 'tweakpane'
@@ -50,18 +51,27 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.z = 0.5
 scene.add(camera)
 
+// Controls
+const controls = new OrbitControls(camera, canvas)
+controls.enableDamping = true
+
 /**
  * Debug
  */
 const pane = new Pane()
 
+const debugParams = {
+  useShader: false,
+  color: '#84ccff',
+}
+
 const f1 = pane.addFolder({
-  title: 'Ambient',
+  title: 'AmbientLight',
 })
 const f2 = pane.addFolder({
-  title: 'Directional',
+  title: 'DirectionalLight',
 })
-
+const f3 = pane.addFolder({ title: 'XRay Shader' })
 /**
  * Light
  */
@@ -114,12 +124,105 @@ let alex
 
 const modelLoader = new GLTFLoader()
 
+let defaultMaterials = []
+
+// XRay shader material
+const xRayMaterial = new THREE.ShaderMaterial({
+  wireframe: true,
+  uniforms: {
+    uPower: { value: 1.5 },
+    uOpacity: { value: 1.0 },
+    uGlowColor: { value: new THREE.Color(0x84ccff) },
+  },
+  vertexShader: `
+    uniform float uPower;
+    varying float vIntensity;
+    ${THREE.ShaderChunk.skinning_pars_vertex}
+    void main() {
+      vec3 vNormal = normalize(normalMatrix * normal);
+      
+      mat4 modelViewProjectionMatrix = projectionMatrix * modelViewMatrix;
+      ${THREE.ShaderChunk.beginnormal_vertex}
+      ${THREE.ShaderChunk.skinbase_vertex}
+      ${THREE.ShaderChunk.skinnormal_vertex}
+  
+      vec3 transformed = vec3(position);
+  
+      ${THREE.ShaderChunk.skinning_vertex}
+  
+      gl_Position = modelViewProjectionMatrix * vec4(transformed, 1.0);
+      vIntensity = pow(1.0 - abs(dot(vNormal, vec3(1, 1, 1.5))), uPower);
+    }
+  `,
+  fragmentShader: `
+      uniform vec3 uGlowColor;
+      uniform float uOpacity;
+      varying float vIntensity;
+      void main()
+      {
+          vec3 glow = uGlowColor * vIntensity;
+          gl_FragColor = vec4( glow, uOpacity );
+      }
+    `,
+  blending: THREE.AdditiveBlending,
+  transparent: true,
+  depthWrite: false,
+})
+
 modelLoader.load('model/alex.glb', (model) => {
   alex = model.scene
   model.scene.position.y = -0.1
   model.scene.position.z = -0.1
 
+  model.scene.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true
+      child.receiveShadow = true
+
+      child.material.opacity = 1
+      child.material.transparent = true
+
+      defaultMaterials[child.name] = child.material
+    }
+  })
+
   scene.add(model.scene)
+})
+
+f3.addInput(debugParams, 'useShader', {
+  label: 'enabled',
+}).on('change', ({ value }) => {
+  alex.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      const newMat = value ? xRayMaterial : defaultMaterials[child.name]
+
+      child.material = newMat
+
+      if (child.name.toLowerCase().includes('eye')) {
+        child.visible = !value
+      }
+    }
+  })
+})
+
+f3.addInput(xRayMaterial.uniforms.uPower, 'value', {
+  min: -10,
+  max: 10,
+  step: 0.001,
+  label: 'power',
+})
+
+f3.addInput(xRayMaterial.uniforms.uOpacity, 'value', {
+  min: 0,
+  max: 1,
+  step: 0.01,
+  label: 'opacity',
+})
+
+f3.addInput(debugParams, 'color', {
+  label: 'glow color',
+}).on('change', ({ value }) => {
+  xRayMaterial.uniforms.uGlowColor.value = new THREE.Color(value)
 })
 
 /**
@@ -154,9 +257,10 @@ const tick = () => {
   const deltaTime = elapsedTime - lastElapsedTime
   lastElapsedTime = elapsedTime
 
-  if (alex) {
-    alex.rotation.set(position.y / 5, position.x, 0)
-  }
+  if (alex) alex.rotation.set(position.y / 5, position.x, 0)
+
+  // Update controls
+  controls.update()
 
   // Render
   renderer.render(scene, camera)
